@@ -4,31 +4,9 @@
 import six
 
 from pagemodel.html import BaseNode, BaseLeaf, Base
+from pagemodel.pagemodel import PageModelMetaClass, BaseBasePageModel
 
 import bs4
-
-
-class PageModelMetaClass(type):
-    def __new__(cls, name, bases, attrs):
-        if name in ['PageModel', 'BasePageModel']:
-            return super(PageModelMetaClass, cls).__new__(cls, name, bases, attrs)
-        if 'model_class' not in attrs:
-            raise TypeError("Subclasses of PageModel must declare "
-                "'model_class' attribute.")
-        if 'page_tree' not in attrs:
-            raise TypeError("Subclasses of PageModel must declare "
-                "'page_tree' attribute.")
-        page_tree = attrs['page_tree']
-        if not isinstance(page_tree, BaseNode):
-            raise TypeError("Invalid type of 'page_tree' attribute.")
-        page_tree.validate()
-        res = super(PageModelMetaClass, cls).__new__(cls, name, bases, attrs)
-        page_tree.fill_thisclass_attr(res)
-        return res
-
-
-class BaseBasePageModel(object):
-    pass
 
 
 class BasePageModel(six.with_metaclass(PageModelMetaClass, BaseBasePageModel)):
@@ -38,12 +16,9 @@ class BasePageModel(six.with_metaclass(PageModelMetaClass, BaseBasePageModel)):
 class PageModel(BasePageModel, BaseLeaf):
     @classmethod
     def extract_unboxed(cls, selector):
-        try:
-            res = cls.page_tree.extract(selector)
-            cls.postproc(res)
-            return cls.model_class(**res)
-        except ValueError as a:
-            raise ValueError(cls.__name__ + ": " + str(a))
+        res = cls.page_tree.extract(selector)
+        cls.postproc(res)
+        return cls.model_class(**res)
 
     def extract(self, selector):
         res = self.extract_unboxed(selector)
@@ -63,7 +38,7 @@ class PageModel(BasePageModel, BaseLeaf):
 
 class Selector(object):
     def __init__(self, arg):
-        if isinstance(arg, basestring):
+        if isinstance(arg, six.string_types):
             self.sel = bs4.BeautifulSoup(arg, "html.parser")
         else:
             self.sel = arg
