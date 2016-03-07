@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import
+
 import six
 
-
-from pagemodel.html import BaseNode, BaseLeaf, Base
+from pagemodel.html import BaseLeaf
 from pagemodel.pagemodel import PageModelMetaClass, BaseBasePageModel
 
 from lxml import etree
 from lxml.etree import XPath
 from lxml.cssselect import CSSSelector
-from lxml.html import html5parser
+
+import html5lib
 
 
 class BasePageModel(six.with_metaclass(PageModelMetaClass, BaseBasePageModel)):
@@ -45,14 +46,26 @@ class PageModel(BasePageModel, BaseLeaf):
 
 
 class Selector(object):
+    @classmethod
+    def _simple_html5_parser(cls, s):
+        """
+        Parses HTML code into tree (html namespace is converted to void namespace)
+        :param s: HTML code to parse
+        :return: Lxml tree representing the code
+        """
+        parser = html5lib.HTMLParser(tree=html5lib.treebuilders.getTreeBuilder("lxml"), namespaceHTMLElements=False)
+        return parser.parse(s)
+
     def __init__(self, arg, nsmap=None, css_translator='html', html_parser=None):
         if not nsmap:
-            nsmap = {'html': "http://www.w3.org/1999/xhtml"}
+            nsmap = {}
+        if not html_parser:
+            html_parser = Selector._simple_html5_parser
         self.nsmap = nsmap
         self.css_translator = css_translator
         self.html_parser = html_parser
         if isinstance(arg, six.string_types):
-            self.sel = html5parser.fromstring(arg, parser=self.html_parser)
+            self.sel = self.html_parser(arg)
         else:
             self.sel = arg
 
@@ -80,9 +93,8 @@ class Selector(object):
 
     def text(self):
         """Return all the text contained in a node as a string."""
-        if not self.sel.text:
-            return ''
-        return self.sel.text
+        res = ''.join([s for s in self.sel.itertext()])
+        return res
 
     def fragment(self):
         """Return XML code within content of current element."""
