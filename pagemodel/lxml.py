@@ -21,9 +21,12 @@ class BasePageModel(six.with_metaclass(PageModelMetaClass, BaseBasePageModel)):
 class PageModel(BasePageModel, BaseLeaf):
     @classmethod
     def extract_unboxed(cls, selector):
-        res = cls.page_tree.extract(selector)
-        cls.postproc(res)
-        return cls.model_class(**res)
+        try:
+            res = cls.page_tree.extract(selector)
+            cls.postproc(res)
+            return cls.model_class(**res)
+        except ValueError as a:
+            raise ValueError(cls.__name__ + ": " + str(a))
 
     def extract(self, selector):
         res = self.extract_unboxed(selector)
@@ -77,9 +80,11 @@ class Selector(object):
 
     def text(self):
         """Return all the text contained in a node as a string."""
+        if not self.sel.text:
+            return ''
         return self.sel.text
 
-    def to_string(self):
+    def fragment(self):
         """Return XML code within content of current element."""
         return etree.tostring(self.sel)
 
@@ -87,4 +92,9 @@ class Selector(object):
         raise NotImplementedError() # do not know what it does
 
     def get_attr(self, attr_name):
+        """
+        Returns value of specified attribute of this tag.
+        :param attr_name: Name of the attribute.
+        :return: Value of the attribute.
+        """
         return self.sel.get(attr_name)

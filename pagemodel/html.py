@@ -329,7 +329,7 @@ class Text(BaseLeaf):
         super(Text, self).__init__()
 
     def extract(self, selector):
-        res = selector.text()
+        res = selector.text().strip()
         return {self.fieldlabel: res}
 
     # TODO
@@ -343,7 +343,7 @@ class Fragment(BaseLeaf):
         super(Fragment, self).__init__()
 
     def extract(self, selector):
-        res = selector.to_string()
+        res = selector.fragment()
         return {self.fieldlabel: res}
 
 
@@ -353,7 +353,7 @@ class Attr(BaseLeaf):
         self.attr = attr
 
     def extract(self, selector):
-        return {self.fieldlabel: selector.get_attr(self.attr)}
+        return {self.fieldlabel: selector.get_attr(self.attr).strip()}
 
 
 class Constant(BaseLeaf):
