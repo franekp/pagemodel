@@ -1,6 +1,7 @@
 from collections import Counter
 import six
 
+
 # TODO:
 # - flatten_lists switch in PageModel subclasses - when lists are nested, they
 #    are flattened
@@ -39,9 +40,9 @@ class BaseNode(Base):
 
     def set_fieldlabel(self, name):
         raise TypeError("You cannot store a node-like"
-            "object '{}' in model's field. You can only store leaf-like things"
-            "such as Text, ShallowText and instances of other models.".format(
-                type(self).__name__))
+                        "object '{}' in model's field. You can only store leaf-like things"
+                        "such as Text, ShallowText and instances of other models.".format(
+            type(self).__name__))
 
     def get_fieldlabels(self):
         """Return a Counter of field labels. This method is only for validation
@@ -95,7 +96,7 @@ class Html(BaseNode):
     pass
 
 
-class FullNode(BaseNode):
+class BaseSelectorFullNode(BaseNode):
     @classmethod
     def reduce_dict_list(cls, dlist):
         res = {}
@@ -122,10 +123,13 @@ class FullNode(BaseNode):
             raise ValueError("take_first applied to an empty list!")
         return res
 
+    def _make_select(self, selector, *alts):
+        raise NotImplementedError
+
     def extract(self, selector):
-        sel_list = selector.css(*self.node.alts)
+        sel_list = self._make_select(selector, *self.node.alts)
         self.node.validate_sel_list_len(len(sel_list))
-        res_list = [super(FullNode, self).extract(sel) for sel in sel_list]
+        res_list = [super(BaseSelectorFullNode, self).extract(sel) for sel in sel_list]
         if self.node.is_list:
             if self.node.concat_sep is not None:
                 return self.concat_dict_list(res_list, self.node.concat_sep)
@@ -140,7 +144,7 @@ class FullNode(BaseNode):
                 return {}
 
 
-class Node(BaseNode):
+class BaseSelectorNode(BaseNode):
     def __init__(self, *args):
         self.alts = []
         self.is_opt = False
@@ -152,14 +156,17 @@ class Node(BaseNode):
                 self.alts.append(i)
             else:
                 raise TypeError("Invalid argument '%s' of type: '%s'. "
-                    "Expected a string with a css path here." % (
-                        str(i), type(i).__name__
-                    )
-                )
-        super(Node, self).__init__()
+                                "Expected a string with a selector path here." % (
+                                    str(i), type(i).__name__
+                                )
+                                )
+        super(BaseSelectorNode, self).__init__()
+
+    def _make_full(self, *args, **kwargs):
+        raise NotImplementedError
 
     def __call__(self, *args, **kwargs):
-        res = FullNode(*args, **kwargs)
+        res = self._make_full(*args, **kwargs)
         res.node = self
         return res
 
@@ -197,134 +204,50 @@ class Node(BaseNode):
         else:
             if size > 1:
                 raise ValueError("Multiple html tags for a non-list node "
-                    "'{}'.".format(" | ".join(self.alts)))
+                                 "'{}'.".format(" | ".join(self.alts)))
             if size == 0 and (not self.is_opt):
                 raise ValueError("Missing html tag for a non-optional node "
-                    "'{}'.".format(" | ".join(self.alts)))
+                                 "'{}'.".format(" | ".join(self.alts)))
+
+    def _make_select(self, selector, *alts):
+        raise NotImplementedError
 
     def extract(self, selector):
         """Only check if the data is correct."""
-        size = len(selector.css(*self.alts))
+        size = len(self._make_select(selector, self.alts))
         self.validate_sel_list_len(size)
         return {}
 
 
-class FullXPath(BaseNode):
-    @classmethod
-    def reduce_dict_list(cls, dlist):
-        res = {}
-        for dic in dlist:
-            res.update(dic)
-        for k in res:
-            res[k] = [dic[k] for dic in dlist if k in dic]
-        return res
-
-    @classmethod
-    def concat_dict_list(cls, dlist, sep):
-        res = cls.reduce_dict_list(dlist)
-        for k in res:
-            res[k] = sep.join(res[k])
-        return res
-
-    @classmethod
-    def takefirst_dict_list(cls, dlist):
-        res = cls.reduce_dict_list(dlist)
-        try:
-            for k in res:
-                res[k] = res[k][0]
-        except IndexError:
-            raise ValueError("take_first applied to an empty list!")
-        return res
-
-    def extract(self, selector):
-        sel_list = selector.xpath(*self.node.alts)
-        self.node.validate_sel_list_len(len(sel_list))
-        res_list = [super(FullXPath, self).extract(sel) for sel in sel_list]
-        if self.node.is_list:
-            if self.node.concat_sep is not None:
-                return self.concat_dict_list(res_list, self.node.concat_sep)
-            elif self.node.is_take_first:
-                return self.takefirst_dict_list(res_list)
-            else:
-                return self.reduce_dict_list(res_list)
-        else:
-            try:
-                return res_list[0]
-            except:
-                return {}
+class FullNode(BaseSelectorFullNode):
+    def _make_select(self, selector, *alts):
+        return selector.css(*alts)
 
 
-class XPath(BaseNode):
-    def __init__(self, *args):
-        self.alts = []
-        self.is_opt = False
-        self.is_list = False
-        self.concat_sep = None
-        self.is_take_first = False
-        for i in args:
-            if isinstance(i, six.string_types):
-                self.alts.append(i)
-            else:
-                raise TypeError("Invalid argument '%s' of type: '%s'. "
-                    "Expected a string with a css path here." % (
-                        str(i), type(i).__name__
-                    )
-                )
-        super(XPath, self).__init__()
+class Node(BaseSelectorNode):
+    def _make_full(self, *args, **kwargs):
+        return FullNode(*args, **kwargs)
 
-    def __call__(self, *args, **kwargs):
-        res = FullXPath(*args, **kwargs)
-        res.node = self
-        return res
+    def _make_select(self, selector, *alts):
+        return selector.css(*alts)
 
-    @classmethod
-    def list(cls, *args):
-        res = cls(*args)
-        res.is_list = True
-        return res
 
-    @classmethod
-    def optional(cls, *args):
-        res = cls(*args)
-        res.is_opt = True
-        return res
+class FullXPath(BaseSelectorFullNode):
+    def _make_select(self, selector, *alts):
+        return selector.xpath(*alts)
 
-    def concat(self, s):
-        if self.is_take_first:
-            raise TypeError("take_first and concat are mutually exclusive!")
-        if not self.is_list:
-            raise TypeError("You can only concat a list of strings")
-        self.concat_sep = s
-        return self
 
-    def take_first(self):
-        if self.concat_sep is not None:
-            raise TypeError("take_first and concat are mutually exclusive!")
-        if not self.is_list:
-            raise TypeError("You can only take_first from a list")
-        self.is_take_first = True
-        return self
+class XPath(BaseSelectorNode):
+    def _make_full(self, *args, **kwargs):
+        return FullXPath(*args, **kwargs)
 
-    def validate_sel_list_len(self, size):
-        if self.is_list:
-            pass
-        else:
-            if size > 1:
-                raise ValueError("Multiple html tags for a non-list node "
-                    "'{}'.".format(" | ".join(self.alts)))
-            if size == 0 and (not self.is_opt):
-                raise ValueError("Missing html tag for a non-optional node "
-                    "'{}'.".format(" | ".join(self.alts)))
-
-    def extract(self, selector):
-        """Only check if the data is correct."""
-        size = len(selector.xpath(*self.alts))
-        self.validate_sel_list_len(size)
-        return {}
+    def _make_select(self, selector, *alts):
+        return selector.xpath(*alts)
 
 
 class Text(BaseLeaf):
     """Whitespace at the beginning and the end of the text is automatically stripped."""
+
     def __init__(self):
         super(Text, self).__init__()
 
@@ -332,13 +255,14 @@ class Text(BaseLeaf):
         res = selector.text().strip()
         return {self.fieldlabel: res}
 
-    # TODO
-    # Text.replace("$", "").lower()
-    # Text.not_strip (or Text.with_whitespace or Text.retain_spaces)
+        # TODO
+        # Text.replace("$", "").lower()
+        # Text.not_strip (or Text.with_whitespace or Text.retain_spaces)
 
 
 class Fragment(BaseLeaf):
     """Whitespace at the beginning and the end of the text is automatically stripped."""
+
     def __init__(self):
         super(Fragment, self).__init__()
 
@@ -377,7 +301,6 @@ class ThisClass(BaseLeaf):
     def fill_thisclass_attr(self, cls):
         """Needed for the recursive ThisClass leaf nodes."""
         self.this_class = cls
-
 
 
 # not implemented:
