@@ -4,31 +4,9 @@
 import six
 
 from pagemodel.html import BaseNode, BaseLeaf, Base
+from pagemodel.pagemodel import PageModelMetaClass, BaseBasePageModel
 
 import bs4
-
-
-class PageModelMetaClass(type):
-    def __new__(cls, name, bases, attrs):
-        if name in ['PageModel', 'BasePageModel']:
-            return super(PageModelMetaClass, cls).__new__(cls, name, bases, attrs)
-        if 'model_class' not in attrs:
-            raise TypeError("Subclasses of PageModel must declare "
-                "'model_class' attribute.")
-        if 'page_tree' not in attrs:
-            raise TypeError("Subclasses of PageModel must declare "
-                "'page_tree' attribute.")
-        page_tree = attrs['page_tree']
-        if not isinstance(page_tree, BaseNode):
-            raise TypeError("Invalid type of 'page_tree' attribute.")
-        page_tree.validate()
-        res = super(PageModelMetaClass, cls).__new__(cls, name, bases, attrs)
-        page_tree.fill_thisclass_attr(res)
-        return res
-
-
-class BaseBasePageModel(object):
-    pass
 
 
 class BasePageModel(six.with_metaclass(PageModelMetaClass, BaseBasePageModel)):
@@ -63,7 +41,7 @@ class PageModel(BasePageModel, BaseLeaf):
 
 class Selector(object):
     def __init__(self, arg):
-        if isinstance(arg, basestring):
+        if isinstance(arg, six.string_types):
             self.sel = bs4.BeautifulSoup(arg, "html.parser")
         else:
             self.sel = arg
@@ -80,11 +58,22 @@ class Selector(object):
         return [Selector(sel) for sel in sel_list]
 
     def text(self):
-        """Return all the text contained in a node as a string."""
+        """
+        Return all the text contained in a node as a string.
+        :return: String containing all the taxt inside the node, w/o tags.
+        """
         return self.sel.get_text()
 
     def textlist(self):
         return list(self.sel.strings)
 
     def get_attr(self, attr_name):
-        return self.sel[attr_name]
+        """
+        Returns value of specified attribute of this tag.
+        :param attr_name: Name of the attribute.
+        :return: Value of the attribute.
+        """
+        attr_value = self.sel[attr_name]
+        if isinstance(attr_value, list):
+            attr_value = ' '.join(attr_value)
+        return attr_value

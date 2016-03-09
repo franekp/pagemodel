@@ -1,4 +1,5 @@
 from collections import Counter
+import six
 
 
 # TODO:
@@ -6,9 +7,6 @@ from collections import Counter
 #    are flattened
 # - If(Attr("class") == "myclass") (...)
 # - ParentNode node-like thing to access parent node space from child nodes
-# - Node.nth(num)("<css-selector>"), Node.first, Node.second, Node.third
-# - more accurate, informative error handling
-
 
 class Base(object):
     def extract(self, selector):
@@ -28,7 +26,7 @@ class Base(object):
 class BaseNode(Base):
     def __init__(self, *args, **kwargs):
         self.child_nodes = []
-        for i in list(args) + kwargs.values():
+        for i in list(args) + list(kwargs.values()):
             if isinstance(i, Base):
                 self.child_nodes.append(i)
             else:
@@ -42,9 +40,9 @@ class BaseNode(Base):
 
     def set_fieldlabel(self, name):
         raise TypeError("You cannot store a node-like"
-            "object '{}' in model's field. You can only store leaf-like things"
-            "such as Text, ShallowText and instances of other models.".format(
-                type(self).__name__))
+                        "object '{}' in model's field. You can only store leaf-like things"
+                        "such as Text, ShallowText and instances of other models.".format(
+            type(self).__name__))
 
     def get_fieldlabels(self):
         """Return a Counter of field labels. This method is only for validation
@@ -94,12 +92,11 @@ class BaseLeaf(Base):
         pass
 
 
-
 class Html(BaseNode):
     pass
 
 
-class FullNode(BaseNode):
+class BaseSelectorFullNode(BaseNode):
     @classmethod
     def reduce_dict_list(cls, dlist):
         res = {}
@@ -126,10 +123,13 @@ class FullNode(BaseNode):
             raise ValueError("take_first applied to an empty list!")
         return res
 
+    def _make_select(self, selector, *alts):
+        raise NotImplementedError
+
     def extract(self, selector):
-        sel_list = selector.css(*self.node.alts)
+        sel_list = self._make_select(selector, *self.node.alts)
         self.node.validate_sel_list_len(len(sel_list))
-        res_list = [super(FullNode, self).extract(sel) for sel in sel_list]
+        res_list = [super(BaseSelectorFullNode, self).extract(sel) for sel in sel_list]
         if self.node.is_list:
             if self.node.concat_sep is not None:
                 return self.concat_dict_list(res_list, self.node.concat_sep)
@@ -144,7 +144,7 @@ class FullNode(BaseNode):
                 return {}
 
 
-class Node(BaseNode):
+class BaseSelectorNode(BaseNode):
     def __init__(self, *args):
         self.alts = []
         self.is_opt = False
@@ -152,18 +152,21 @@ class Node(BaseNode):
         self.concat_sep = None
         self.is_take_first = False
         for i in args:
-            if isinstance(i, basestring):
+            if isinstance(i, six.string_types):
                 self.alts.append(i)
             else:
                 raise TypeError("Invalid argument '%s' of type: '%s'. "
-                    "Expected a string with a css path here." % (
-                        str(i), type(i).__name__
-                    )
-                )
-        super(Node, self).__init__()
+                                "Expected a string with a selector path here." % (
+                                    str(i), type(i).__name__
+                                )
+                                )
+        super(BaseSelectorNode, self).__init__()
+
+    def _make_full(self, *args, **kwargs):
+        raise NotImplementedError
 
     def __call__(self, *args, **kwargs):
-        res = FullNode(*args, **kwargs)
+        res = self._make_full(*args, **kwargs)
         res.node = self
         return res
 
@@ -201,31 +204,71 @@ class Node(BaseNode):
         else:
             if size > 1:
                 raise ValueError("Multiple html tags for a non-list node "
-                    "'{}'.".format(" | ".join(self.alts)))
+                                 "'{}'.".format(" | ".join(self.alts)))
             if size == 0 and (not self.is_opt):
                 raise ValueError("Missing html tag for a non-optional node "
-                    "'{}'.".format(" | ".join(self.alts)))
+                                 "'{}'.".format(" | ".join(self.alts)))
+
+    def _make_select(self, selector, *alts):
+        raise NotImplementedError
 
     def extract(self, selector):
         """Only check if the data is correct."""
-        size = len(selector.css(*self.alts))
+        size = len(self._make_select(selector, self.alts))
         self.validate_sel_list_len(size)
         return {}
 
 
+class FullNode(BaseSelectorFullNode):
+    def _make_select(self, selector, *alts):
+        return selector.css(*alts)
+
+
+class Node(BaseSelectorNode):
+    def _make_full(self, *args, **kwargs):
+        return FullNode(*args, **kwargs)
+
+    def _make_select(self, selector, *alts):
+        return selector.css(*alts)
+
+
+class FullXPath(BaseSelectorFullNode):
+    def _make_select(self, selector, *alts):
+        return selector.xpath(*alts)
+
+
+class XPath(BaseSelectorNode):
+    def _make_full(self, *args, **kwargs):
+        return FullXPath(*args, **kwargs)
+
+    def _make_select(self, selector, *alts):
+        return selector.xpath(*alts)
+
+
 class Text(BaseLeaf):
     """Whitespace at the beginning and the end of the text is automatically stripped."""
+
     def __init__(self):
         super(Text, self).__init__()
 
     def extract(self, selector):
-        res = selector.text()
-        res = res.strip()
+        res = selector.text().strip()
         return {self.fieldlabel: res}
 
-    # TODO
-    # Text.replace("$", "").lower()
-    # Text.not_strip (or Text.with_whitespace or Text.retain_spaces)
+        # TODO
+        # Text.replace("$", "").lower()
+        # Text.not_strip (or Text.with_whitespace or Text.retain_spaces)
+
+
+class Fragment(BaseLeaf):
+    """Whitespace at the beginning and the end of the text is automatically stripped."""
+
+    def __init__(self):
+        super(Fragment, self).__init__()
+
+    def extract(self, selector):
+        res = selector.fragment()
+        return {self.fieldlabel: res}
 
 
 class Attr(BaseLeaf):
@@ -258,7 +301,6 @@ class ThisClass(BaseLeaf):
     def fill_thisclass_attr(self, cls):
         """Needed for the recursive ThisClass leaf nodes."""
         self.this_class = cls
-
 
 
 # not implemented:
